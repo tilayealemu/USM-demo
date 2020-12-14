@@ -1,5 +1,6 @@
 import math
 import sys
+import json
 
 # Parameters:
 USM_MINT_FEE    = 0.001
@@ -20,56 +21,68 @@ usm_holdings                = {}
 fum_holdings                = {}
 min_fum_buy_price_in_eth    = 0
 
-def main():
-    input_loop()
 
-def input_loop():
-    while True:
-        clear_min_fum_buy_price_if_obsolete()
-        print(status_summary())
-        print()
-        line = input("> ")
-        words = line.split()
-        try:
-            if words[0] == "price":
-                # "price 150" -> change the current ETH price in our simulation to $150
-                new_price = float(words[1])
-                change_eth_price(new_price)
-            elif words[0] == "mint":
-                # "mint A 10" -> user A adds 10 ETH to the pool, getting back 10 * eth_price newly-minted USM (minus fees)
-                user, eth_to_add = words[1], float(words[2])
-                usm_minted = mint_usm(user, eth_to_add)
-                print("Minted {:,} new USM for {} from {:,} ETH.".format(round(usm_minted, 4), user, round(eth_to_add, 6)))
-            elif words[0] == "burn":
-                # "burn A 1000" -> user A burns 1,000 of their USM, getting back (1,000 / eth_price) ETH (minus fees)
-                user, usm_to_burn = words[1], float(words[2])
-                eth_removed = burn_usm(user, usm_to_burn)
-                print("Burned {:,} of {}'s USM for ${:,} each, yielding {:,} ETH.".format(round(usm_to_burn, 4), user, round(eth_removed * eth_price / usm_to_burn, 6), round(eth_removed, 6)))
-            elif words[0] == "fund_eth":
-                # "fund_eth B 5" -> user B adds 5 ETH to the pool, getting back a corresponding amount of newly-created FUM (based on the current FUM price, roughly buffer_value() / fum_outstanding())
-                user, eth_to_add = words[1], float(words[2])
-                fum_created = create_fum_from_eth(user, eth_to_add)
-                print("Created {:,} new FUM for {} from {:,} ETH.".format(round(fum_created, 4), user, round(eth_to_add, 6)))
-            elif words[0] == "fund_usm":
-                # "fund_usm B 1000" -> user B returns (burns) 1000 USM to the pool, getting back a corresponding amount of newly-created FUM (based on the current FUM price).  This leaves total pool value unchanged - basically converting USM to FUM, deceasing debt ratio.
-                user, usm_to_convert = words[1], float(words[2])
-                fum_created = create_fum_from_usm(user, usm_to_convert)
-                print("Created {:,} new FUM for {} from {:,} USM.".format(round(fum_created, 4), user, round(usm_to_convert, 4)))
-            elif words[0] == "defund":
-                # "defund B 1000" -> user B redeems 1,000 of their FUM, getting back a corresponding amount of ETH (based on the current FUM price)
-                user, fum_to_redeem = words[1], float(words[2])
-                eth_removed = redeem_fum(user, fum_to_redeem)
-                print("Redeemed {:,} of {}'s FUM for ${:,} each, yielding {:,} ETH.".format(round(fum_to_redeem, 4), user, round(eth_removed * eth_price / fum_to_redeem, 6), round(eth_removed, 6)))
-            else:
-                raise ValueError("Unrecognized command: '{}'".format(words))
-        except:
-            print("Error:", sys.exc_info())
+def process_input(line):
+    clear_min_fum_buy_price_if_obsolete()
+    print(status_summary())
+    print(status_summary_json())
+    print()
+    words = line.split()
+    try:
+        if words[0] == "price":
+            # "price 150" -> change the current ETH price in our simulation to $150
+            new_price = float(words[1])
+            change_eth_price(new_price)
+        elif words[0] == "mint":
+            # "mint A 10" -> user A adds 10 ETH to the pool, getting back 10 * eth_price newly-minted USM (minus fees)
+            user, eth_to_add = words[1], float(words[2])
+            usm_minted = mint_usm(user, eth_to_add)
+            print("Minted {:,} new USM for {} from {:,} ETH.".format(round(usm_minted, 4), user, round(eth_to_add, 6)))
+        elif words[0] == "burn":
+            # "burn A 1000" -> user A burns 1,000 of their USM, getting back (1,000 / eth_price) ETH (minus fees)
+            user, usm_to_burn = words[1], float(words[2])
+            eth_removed = burn_usm(user, usm_to_burn)
+            print("Burned {:,} of {}'s USM for ${:,} each, yielding {:,} ETH.".format(round(usm_to_burn, 4), user, round(eth_removed * eth_price / usm_to_burn, 6), round(eth_removed, 6)))
+        elif words[0] == "fund_eth":
+            # "fund_eth B 5" -> user B adds 5 ETH to the pool, getting back a corresponding amount of newly-created FUM (based on the current FUM price, roughly buffer_value() / fum_outstanding())
+            user, eth_to_add = words[1], float(words[2])
+            fum_created = create_fum_from_eth(user, eth_to_add)
+            print("Created {:,} new FUM for {} from {:,} ETH.".format(round(fum_created, 4), user, round(eth_to_add, 6)))
+        elif words[0] == "fund_usm":
+            # "fund_usm B 1000" -> user B returns (burns) 1000 USM to the pool, getting back a corresponding amount of newly-created FUM (based on the current FUM price).  This leaves total pool value unchanged - basically converting USM to FUM, deceasing debt ratio.
+            user, usm_to_convert = words[1], float(words[2])
+            fum_created = create_fum_from_usm(user, usm_to_convert)
+            print("Created {:,} new FUM for {} from {:,} USM.".format(round(fum_created, 4), user, round(usm_to_convert, 4)))
+        elif words[0] == "defund":
+            # "defund B 1000" -> user B redeems 1,000 of their FUM, getting back a corresponding amount of ETH (based on the current FUM price)
+            user, fum_to_redeem = words[1], float(words[2])
+            eth_removed = redeem_fum(user, fum_to_redeem)
+            print("Redeemed {:,} of {}'s FUM for ${:,} each, yielding {:,} ETH.".format(round(fum_to_redeem, 4), user, round(eth_removed * eth_price / fum_to_redeem, 6), round(eth_removed, 6)))
+        else:
+            raise ValueError("Unrecognized command: '{}'".format(words))
+    except:
+        print("Error:", sys.exc_info())
+    return status_summary_json();
+    
 
 def status_summary():
     min_fum_buy_price_string = "" if min_fum_buy_price_in_eth == 0 else " (min {:,} ETH = ${:,})".format(round(min_fum_buy_price_in_eth, 6), round(min_fum_buy_price_in_eth * eth_price, 8))
     return "{:,} ETH at ${:,} = ${:,} pool value, {:,} USM outstanding, buffer = ${:,}, debt ratio = {:.2%}, {:,} FUM outstanding, FUM price = ${:,}/${:,}{}\nUSM holdings: {}\nFUM holdings: {}".format(
         round(pool_eth, 6), round(eth_price, 4), round(pool_value(), 2), round(usm_outstanding(), 4), round(buffer_value(), 2), debt_ratio(), round(fum_outstanding(), 4), round(fum_price(SELL), 6), round(fum_price(BUY), 6), min_fum_buy_price_string, usm_holdings, fum_holdings)
 
+
+def status_summary_json():
+    min_fum_buy_price_string = "" if min_fum_buy_price_in_eth == 0 else " (min {:,} ETH = ${:,})".format(round(min_fum_buy_price_in_eth, 6), round(min_fum_buy_price_in_eth * eth_price, 8))
+    state = {
+      "pool_eth": pool_eth, "eth_price": eth_price, "pool_value": pool_value(), "usm_outstanding": usm_outstanding(),
+      "buffer_value": buffer_value(), "debt_ratio": debt_ratio(), "fum_outstanding": fum_outstanding(),
+      "fum_price_sell":fum_price(SELL), "fum_price_buy":fum_price(BUY),
+      "min_fum_buy_price": min_fum_buy_price_string, "usm_holdings":usm_holdings,
+      "fum_holdings":fum_holdings
+    }
+    print(state)
+    return json.dumps(state, indent = 4)   
+      
 
 # State-modifying operations:
 
@@ -205,4 +218,3 @@ def fum_price(side):
         else:
             return price
 
-main()
